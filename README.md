@@ -1,4 +1,4 @@
-# Next_springbot_jwt
+use# Next_springbot_jwt
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
@@ -250,6 +250,88 @@ function refreshToken() {
 export default axiosInstance;
 
 
+// src/axiosInstance.ts
+
+import axios, { AxiosRequestConfig, AxiosError } from 'axios';
+
+const apiUrl = 'http://localhost:8080'; // Replace with your server URL
+
+const axiosInstance = axios.create({
+  baseURL: apiUrl,
+});
+
+axiosInstance.interceptors.request.use(
+  (config: AxiosRequestConfig) => {
+    const token = localStorage.getItem('jwtToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error: AxiosError) => {
+    return Promise.reject(error);
+  }
+);
+
+let isRefreshing = false;
+let refreshSubscribers: ((token: string) => void)[] = [];
+
+axiosInstance.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError) => {
+    const originalRequest = error.config;
+
+    if (error.response?.status === 401) {
+      if (!isRefreshing) {
+        isRefreshing = true;
+
+        try {
+          const newToken = await refreshToken();
+          originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
+          originalRequest.baseURL = '';
+          axiosInstance.defaults.headers['Authorization'] = `Bearer ${newToken}`;
+          refreshSubscribers.forEach((callback) => callback(newToken));
+          refreshSubscribers = [];
+
+          return axiosInstance(originalRequest);
+        } catch (refreshError) {
+          console.error('Token refresh error:', refreshError);
+          // Handle token refresh error, e.g., log out the user
+          // Redirect to the login page or handle the logout process here
+          window.location.href = '/login'; // Example: Redirect to the login page
+        } finally {
+          isRefreshing = false;
+        }
+      } else {
+        return new Promise((resolve) => {
+          refreshSubscribers.push((newToken) => {
+            originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
+            resolve(axiosInstance(originalRequest));
+          });
+        });
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+async function refreshToken(): Promise<string> {
+  const token = localStorage.getItem('jwtToken');
+
+  // Implement your token refresh logic here, e.g., send a request to your server
+  try {
+    const response = await axios.post(`${apiUrl}/api/refresh`, null, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const newToken = response.data;
+    localStorage.setItem('jwtToken', newToken);
+    return newToken;
+  } catch (error) {
+    throw error;
+  }
+}
+
+export default axiosInstance;
 
 
 
