@@ -147,6 +147,109 @@ export default axiosInstance;
 
 
 
+#react
+
+
+
+
+
+
+
+
+// src/axiosInstance.js
+
+import axios from 'axios';
+
+const apiUrl = 'http://localhost:8080'; // Replace with your server URL
+
+const axiosInstance = axios.create({
+  baseURL: apiUrl,
+});
+
+axiosInstance.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('jwtToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// A flag to prevent multiple token refresh requests
+let isRefreshing = false;
+let refreshSubscribers = [];
+
+// Add a response interceptor to handle token refresh
+axiosInstance.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const originalRequest = error.config;
+
+    if (error.response.status === 401) {
+      if (!isRefreshing) {
+        isRefreshing = true;
+
+        // Make a request to refresh the token
+        return refreshToken()
+          .then((newToken) => {
+            // Update the original request with the new token
+            originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
+            originalRequest.baseURL = '';
+            axiosInstance.defaults.headers['Authorization'] = `Bearer ${newToken}`;
+            refreshSubscribers = [];
+
+            // Retry the original request
+            return axiosInstance(originalRequest);
+          })
+          .catch((refreshError) => {
+            // Handle token refresh error, e.g., log out the user
+            console.error('Token refresh error:', refreshError);
+            // Redirect to the login page or handle the logout process here
+            window.location.href = '/login'; // Example: Redirect to the login page
+          })
+          .finally(() => {
+            isRefreshing = false;
+          });
+      } else {
+        // Create a promise to wait for token refresh
+        return new Promise((resolve) => {
+          // Add the request to the subscribers list
+          refreshSubscribers.push((newToken) => {
+            originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
+            resolve(axiosInstance(originalRequest));
+          });
+        });
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Function to refresh the token
+function refreshToken() {
+  const token = localStorage.getItem('jwtToken');
+
+  // Implement your token refresh logic here, e.g., send a request to your server
+  return axios.post(`${apiUrl}/api/refresh`, null, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+    .then((response) => {
+      const newToken = response.data;
+      localStorage.setItem('jwtToken', newToken);
+
+      // Notify all subscribers with the new token
+      refreshSubscribers.forEach((callback) => callback(newToken));
+      return newToken;
+    });
+}
+
+export default axiosInstance;
+
+
 
 
 
